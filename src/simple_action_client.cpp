@@ -20,9 +20,8 @@ int main(int argc, char** argv)
     goal.endLocation = {5,5};   // enter your waypoint
 
 	client.sendGoal(goal);
-	client.waitForResult(ros::Duration(5.0));
+	client.waitForResult(ros::Duration(100.0));
 	if (client.getState()==actionlib::SimpleClientGoalState::SUCCEEDED){
-		printf("succeeded :)");
 		printf("Current State: %s\n", client.getState().toString().c_str());
 	}
 	printf("Current State: %s\n", client.getState().toString().c_str());

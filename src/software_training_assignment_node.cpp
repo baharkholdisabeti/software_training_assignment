@@ -112,8 +112,7 @@ bool spawn(int x, int y, int theta, std::string name)
 }
 
 // kills turtle1 and spawns moving turtle
-bool myReset(std_srvs::Empty::Request &req,
-		std_srvs::Empty::Response &resp)
+bool myReset(std_srvs::Empty::Request &req, std_srvs::Empty::Response &resp)
 {
 	ROS_INFO_STREAM("my_reset srv called");
 	if (kill("moving_turtle")){
@@ -132,6 +131,29 @@ void reset_moving(){
 	}
 }
 
+// find angle to steer to depending on which quadrant
+// the goal is in
+// could possibly create a bug for angles close to the
+// edges of quadrants
+double findAngle(double xGoal, double yGoal){
+	if (yGoal<yTurtle1){
+		if (xGoal<xTurtle1){
+			return -3.14 + atan((yGoal - yTurtle1)/ (xGoal - xTurtle1));
+		}
+		else{
+			return atan((yGoal - yTurtle1)/ (xGoal - xTurtle1));
+		}
+	}
+	else{
+		if (xGoal<xTurtle1){
+			return 3.14 + atan((yGoal - yTurtle1)/ (xGoal - xTurtle1));
+		}
+		else{
+			return atan((yGoal - yTurtle1)/ (xGoal - xTurtle1));
+		}
+	}
+}
+
 // moves turtle to waypoint using action Move.action
 // VERY INCONSISTENT
 void execute(const software_training_assignment::MoveGoalConstPtr& goal, Server* as)
@@ -140,27 +162,7 @@ void execute(const software_training_assignment::MoveGoalConstPtr& goal, Server*
 	double xGoal = goal->endLocation[0];
 	double yGoal = goal->endLocation[1];
 	double dist = sqrt(pow((xGoal-xTurtle1), 2)+pow((yGoal-yTurtle1), 2));
-	double steering_angle = -100;
-	// find angle to steer to depending on which quadrant
-	// the goal is in
-	// could possibly create a bug for angles close to the
-	// edges of quadrants
-	if (yGoal<yTurtle1){
-		if (xGoal<xTurtle1){
-			steering_angle = -3.14 + atan((yGoal - yTurtle1)/ (xGoal - xTurtle1));
-		}
-		else{
-			steering_angle = atan((yGoal - yTurtle1)/ (xGoal - xTurtle1));
-		}
-	}
-	else{
-		if (xGoal<xTurtle1){
-			steering_angle = 3.14 + atan((yGoal - yTurtle1)/ (xGoal - xTurtle1));
-		}
-		else{
-			steering_angle = atan((yGoal - yTurtle1)/ (xGoal - xTurtle1));
-		}
-	}
+	double steering_angle = findAngle(xGoal, yGoal);
 
 	if (turtleTime == -1){   // initialize time
 		turtleTime = ros::Time::now().toSec();
@@ -187,7 +189,7 @@ void execute(const software_training_assignment::MoveGoalConstPtr& goal, Server*
 		ROS_INFO("Steering angle: %f, turtle angle: %f", steering_angle, ((double)thetaTurtle1));
 		ros::spinOnce();
 	}
-	while (dist>2){     // where 2 is distance tolerance		
+	while (dist>1){     // where 1 is distance tolerance		
 		steering_angle = -100;
 		// update moving_turtle location
 		ros::Subscriber mt_pose = nh.subscribe<turtlesim::Pose>     // updates moving turtle pose
@@ -229,44 +231,18 @@ void execute(const software_training_assignment::MoveGoalConstPtr& goal, Server*
 	ros::spinOnce();
 }
 
-// main function
-int main(int argc, char **argv) {
-	ros::init(argc, argv, "software_training_assignment_node");
+// updates coord custom msg
+void updateDisp(){
 	ros::NodeHandle nh;
-
-	reset();     // resets everything to start config
-	kill("turtle1");      // kills turtle1 because we don't like him
-	// but also because he's not on the list of instructions
-	spawn(5, 5, 0, "stationary_turtle"); // makes "stationary_turtle" @ (5,5)
-	spawn(25, 10, 0, "moving_turtle"); // makes "moving_turtle" @ (25,10)
-
-	// Register service
-	ros::ServiceServer server = nh.advertiseService("my_reset", &myReset);
-
-	//ros::spin();
-
-	ros::Subscriber mt_pose = nh.subscribe<turtlesim::Pose>     // subscriber for moving turtle
-	("/moving_turtle/pose",10, &poseCallback);
-	ros::Subscriber st_pose = nh.subscribe<turtlesim::Pose> // subscriber for stationary turtle
-	("/stationary_turtle/pose",10, &poseCallback2);
-
+	ros::Rate loop_rate(10);
 	// publisher for distances between 2 turtles
 	ros::Publisher coord_pub = nh.advertise<software_training_assignment::Disp>("coord", 1000);
-
-	// set up action
-	///////////////////////////////////////////////////////////////////////////////////////
-	actionlib::SimpleActionServer<software_training_assignment::MoveAction> as(nh, "move", boost::bind(&execute, _1, &as), false);
-	as.start();
-	///////////////////////////////////////////////////////////////////////////////////////
-	// done setting up action
-
-	ros::Rate loop_rate(10);
-
+	
 	// num of sent msgs
 	int count = 0;
-
 	while (ros::ok())
 	{
+		// updates Disp msg
 		software_training_assignment::Disp msg;
 
 		double xDist = abs(xTurtle2 - xTurtle1);
@@ -282,6 +258,36 @@ int main(int argc, char **argv) {
 		loop_rate.sleep();
 		++count;
 	}
+}
+
+// main function
+int main(int argc, char **argv) {
+	ros::init(argc, argv, "software_training_assignment_node");
+	ros::NodeHandle nh;
+
+	reset();     // resets everything to start config
+	kill("turtle1");      // kills turtle1 because we don't like him
+	// but also because he's not on the list of instructions
+	spawn(5, 5, 0, "stationary_turtle"); // makes "stationary_turtle" @ (5,5)
+	spawn(25, 10, 0, "moving_turtle"); // makes "moving_turtle" @ (25,10)
+
+	// Register service
+	ros::ServiceServer server = nh.advertiseService("my_reset", &myReset);
+
+	ros::Subscriber mt_pose = nh.subscribe<turtlesim::Pose>     // subscriber for moving turtle
+	("/moving_turtle/pose",10, &poseCallback);
+	ros::Subscriber st_pose = nh.subscribe<turtlesim::Pose> // subscriber for stationary turtle
+	("/stationary_turtle/pose",10, &poseCallback2);
+
+	// set up action
+	///////////////////////////////////////////////////////////////////////////////////////
+	actionlib::SimpleActionServer<software_training_assignment::MoveAction> as(nh, "move", boost::bind(&execute, _1, &as), false);
+	as.start();
+	///////////////////////////////////////////////////////////////////////////////////////
+	// done setting up action
+
+	// updates coord custom msg
+	updateDisp();
 
 	return 0;
 }
